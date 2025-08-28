@@ -352,6 +352,30 @@ class TilliT:
                     "quantity":"ScheduledQuantity",
                 }).reset_index(drop=True)
 
+    def _do_get_completed_orders(self, orderNumbers: list[str]) -> list[str]:
+        """
+        Retrieves a list of completed order numbers from the external order instance API.
+
+        Args:
+            orderNumbers (list[str]): A list of order numbers to check for completion status.
+
+        Returns:
+            list[str]: A list of unique order numbers that have a status of 'COMPLETED'.
+        """
+        orders: List[str] = []
+
+        batches = [orderNumbers[i:i + 80] for i in range(0, len(orderNumbers), 80)]
+        for batch in batches:
+
+            orderList = ",".join(batch)
+            response = self.fetch_DO(endpoint=f"core/order-instances?status.equals=COMPLETED&orderNumber.in={orderList}")
+
+            df = pd.DataFrame(response)
+
+            if "orderNumber" in df.columns:
+                orders += df["orderNumber"].unique().tolist()
+
+        return list(set(orders))
 
 #Exposed Functions
     
@@ -395,7 +419,7 @@ class TilliT:
         merged_df['equipmentClass'] = merged_df['equipmentClass'].apply(lambda x: extract(x, 'description')).replace(["NaN", "null", "", np.nan, None], '')
         merged_df['materialId'] = merged_df['materialDefinition'].apply(lambda x: extract(x, 'externalId'))
         merged_df['material'] = merged_df['materialDefinition'].apply(lambda x: extract(x, 'description'))
-        merged_df["fixedDuration"] = merged_df["fixedDuration"].replace(["NaN", "null", "", np.nan], 0)
+        merged_df["fixedDuration"] = pd.to_numeric(merged_df["fixedDuration"].replace(["NaN", "null", "", np.nan], 0),errors='coerce')
         merged_df["rate"] = pd.to_numeric(merged_df["rate"].replace(["NaN", "null", "", np.nan], 0),errors='coerce')
         merged_df["rateHour"] = (merged_df["rate"] *60 *60)
 
@@ -474,13 +498,17 @@ class TilliT:
         merged_df = plannedOrders \
             .merge(scheduledOrder, how="inner", left_on="orderItemsId", right_on="orderItemId", suffixes=('', '_scheduled'))
 
+        orderNumbers = merged_df["orderNumber"].unique().tolist() 
+        doOrders = self._do_get_completed_orders(orderNumbers=orderNumbers)
+
+        merged_df.loc[merged_df["orderNumber"].isin(doOrders), "status"] = "COMPLETED"
+
         merged_df = merged_df.drop(columns=['orderItemId','orderItemsId'],axis=1)
         merged_df.columns = [
             'Id', 'OrderNumber', 'EarliestStartDate', 'DueDate', 'Notes', 'Status', 'OrderItems', 'OrderProperties', 'Priority', 
             'OrderedQuantity', 'OrderUOM', 'ProductCode', 'StartDateTime', 'EndDateTime', 'ScheduledQuantity', 'Duration_Minutes', 
             'ExpectedDuration_Minutes', 'DurationLocked', 'ChangeoverDuration', 'Equipment']
         return merged_df
-
 
     @property
     def site(self) -> str:
