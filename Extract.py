@@ -1,3 +1,53 @@
+import pandas as pd
+import requests
+import json
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+from datetime import datetime
+
+def extract(field, pull:str):
+    if isinstance(field, str):
+        try:
+            field_json = json.loads(field)
+            return field_json.get(pull)
+        except json.JSONDecodeError:
+            return None
+    elif isinstance(field, dict):
+        return field.get(pull)
+    return None
+
+def extract_fields(data, fields):
+    """
+    Extract specified fields from a dictionary, JSON string, or list of dictionaries.
+
+    Parameters:
+    - data: dict, str (JSON string), or list of dicts
+    - fields: list of field names to extract
+
+    Returns:
+    - dict (if input is dict), or list of dicts (if input is list)
+    """
+    if data is None or fields is None:
+        return None
+
+    # Try to parse JSON string if needed
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return None
+
+    # If it's a list of dicts
+    if isinstance(data, list):
+        return [{field: item.get(field) for field in fields} for item in data if isinstance(item, dict)]
+
+    # If it's a single dict
+    if isinstance(data, dict):
+        return {field: data.get(field) for field in fields}
+
+    return None
+
 class TilliT:
 
     _schedulerEndpoints = {
